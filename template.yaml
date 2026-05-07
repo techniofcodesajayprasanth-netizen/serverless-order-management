@@ -1,0 +1,86 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Serverless Order Management App
+
+Globals:
+  Function:
+    Runtime: nodejs18.x
+    Timeout: 30
+
+Resources:
+
+  OrderQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: OrderQueue
+      VisibilityTimeout: 60
+
+  OrderTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: OrderNotifications
+
+  InvoiceBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: order-invoices-ajay-2026
+
+  CreateOrderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/createOrder/
+      Handler: index.handler
+      Environment:
+        Variables:
+          ORDER_QUEUE_URL: !Ref OrderQueue
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: Orders
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt OrderQueue.QueueName
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /orders
+            Method: post
+
+  GetOrderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/getOrder/
+      Handler: index.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: Orders
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /orders/{orderId}
+            Method: get
+
+  ProcessOrderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/processOrder/
+      Handler: index.handler
+      Environment:
+        Variables:
+          ORDER_TOPIC_ARN: !Ref OrderTopic
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: Orders
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt OrderTopic.TopicName
+      Events:
+        SQSTrigger:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt OrderQueue.Arn
+            BatchSize: 10
+
+Outputs:
+  ApiUrl:
+    Description: Your API endpoint
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.us-east-1.amazonaws.com/Prod"
